@@ -1,32 +1,32 @@
-import { Store } from "./base-store.js";
 import { env } from "../config.js";
+import Store from "./store.js";
 
 /**
- * Store for tracking download statistics using Redis
- * Falls back to memory store if Redis is not available
+ * Store for tracking download statistics
  */
-export default class StatsStore extends Store {
+export default class StatsStore {
+    #store;
+
     constructor(name = 'stats') {
-        super(name);
-        this.useRedis = !!env.redisURL;
-        console.log(`Stats store initialized with ${this.useRedis ? 'Redis' : 'memory'} backend`);
+        this.#store = new Store(name);
+        console.log(`Stats store initialized with ${env.redisURL ? 'Redis' : 'memory'} backend`);
         this.initializeStats();
     }
 
     async initializeStats() {
         // Initialize total downloads count if not exists
-        if (!(await this._has('totalDownloads'))) {
-            await this._set('totalDownloads', 0);
+        if (!(await this.#store.has('totalDownloads'))) {
+            await this.#store.set('totalDownloads', 0);
         }
 
         // Initialize daily stats if not exists
-        if (!(await this._has('dailyStats'))) {
-            await this._set('dailyStats', {});
+        if (!(await this.#store.has('dailyStats'))) {
+            await this.#store.set('dailyStats', {});
         }
 
         // Initialize social media stats if not exists
-        if (!(await this._has('socialMediaStats'))) {
-            await this._set('socialMediaStats', {});
+        if (!(await this.#store.has('socialMediaStats'))) {
+            await this.#store.set('socialMediaStats', {});
         }
     }
 
@@ -35,44 +35,10 @@ export default class StatsStore extends Store {
      * @param {string} socialMedia - Social media source (optional)
      */
     async recordDownload(socialMedia = null) {
-        // Increment total downloads using Redis INCR if available
-        if (this.useRedis) {
-            try {
-                // For Redis implementations, we'll rely on the appropriate Redis commands
-                // via the Store interface which should map to Redis operations
-                await this._set('totalDownloads', (await this.getTotalDownloads()) + 1);
-
-                // Update daily stats
-                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-                const dailyStats = await this.getDailyStats();
-
-                if (!dailyStats[today]) {
-                    dailyStats[today] = 0;
-                }
-                dailyStats[today]++;
-
-                await this._set('dailyStats', dailyStats);
-
-                // Update social media stats if available
-                if (socialMedia) {
-                    const socialMediaStats = await this.getSocialMediaStats();
-
-                    if (!socialMediaStats[socialMedia]) {
-                        socialMediaStats[socialMedia] = 0;
-                    }
-                    socialMediaStats[socialMedia]++;
-
-                    await this._set('socialMediaStats', socialMediaStats);
-                }
-            } catch (error) {
-                console.error('Error recording download in Redis:', error);
-                throw error;
-            }
-        } else {
-            // Fallback to memory store implementation
+        try {
             // Increment total downloads
             const totalDownloads = await this.getTotalDownloads();
-            await this._set('totalDownloads', totalDownloads + 1);
+            await this.#store.set('totalDownloads', totalDownloads + 1);
 
             // Update daily stats
             const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
@@ -83,7 +49,7 @@ export default class StatsStore extends Store {
             }
             dailyStats[today]++;
 
-            await this._set('dailyStats', dailyStats);
+            await this.#store.set('dailyStats', dailyStats);
 
             // Update social media stats if available
             if (socialMedia) {
@@ -94,8 +60,11 @@ export default class StatsStore extends Store {
                 }
                 socialMediaStats[socialMedia]++;
 
-                await this._set('socialMediaStats', socialMediaStats);
+                await this.#store.set('socialMediaStats', socialMediaStats);
             }
+        } catch (error) {
+            console.error('Error recording download:', error);
+            throw error;
         }
     }
 
@@ -104,7 +73,7 @@ export default class StatsStore extends Store {
      * @returns {Promise<number>}
      */
     async getTotalDownloads() {
-        return await this._get('totalDownloads') || 0;
+        return await this.#store.get('totalDownloads') || 0;
     }
 
     /**
@@ -112,7 +81,7 @@ export default class StatsStore extends Store {
      * @returns {Promise<Object>}
      */
     async getDailyStats() {
-        return await this._get('dailyStats') || {};
+        return await this.#store.get('dailyStats') || {};
     }
 
     /**
@@ -120,7 +89,7 @@ export default class StatsStore extends Store {
      * @returns {Promise<Object>}
      */
     async getSocialMediaStats() {
-        return await this._get('socialMediaStats') || {};
+        return await this.#store.get('socialMediaStats') || {};
     }
 
     /**
