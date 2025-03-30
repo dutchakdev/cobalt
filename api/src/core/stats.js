@@ -8,9 +8,16 @@ let statsStore;
  * Initialize the stats store
  */
 export const initStatsStore = async () => {
-    statsStore = new StatsStore();
-    await statsStore.initializeStats();
-    return statsStore;
+    try {
+        statsStore = new StatsStore();
+        await statsStore.initializeStats();
+        return statsStore;
+    } catch (error) {
+        console.error("Error initializing stats store:", error);
+        // Return null but don't throw - we want the application to continue
+        // even if stats tracking isn't working
+        return null;
+    }
 };
 
 /**
@@ -18,13 +25,13 @@ export const initStatsStore = async () => {
  * @param {string} socialMedia - Social media source (optional)
  */
 export const recordDownload = async (socialMedia = null) => {
-    if (!statsStore) {
-        await initStatsStore();
-    }
-
     try {
-        await statsStore.recordDownload(socialMedia);
-        return true;
+        if (!statsStore) {
+            statsStore = await initStatsStore();
+            if (!statsStore) return false;
+        }
+
+        return await statsStore.recordDownload(socialMedia);
     } catch (error) {
         console.error("Error recording download:", error);
         return false;
@@ -47,11 +54,14 @@ export const handleStatsRequest = async (req, res) => {
         }
     }
 
-    if (!statsStore) {
-        await initStatsStore();
-    }
-
     try {
+        if (!statsStore) {
+            statsStore = await initStatsStore();
+            if (!statsStore) {
+                throw new Error("Failed to initialize stats store");
+            }
+        }
+
         // Get all stats
         const totalDownloads = await statsStore.getTotalDownloads();
         const downloadsToday = await statsStore.getDownloadsToday();

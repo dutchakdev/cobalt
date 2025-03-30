@@ -48,8 +48,13 @@ export const runAPI = async (express, app, __dirname, isPrimary = true) => {
     const startTime = new Date();
     const startTimestamp = startTime.getTime();
 
-    // Initialize stats tracking
-    await initStatsStore();
+    // Initialize stats tracking, but don't block app startup if it fails
+    try {
+        await initStatsStore();
+    } catch (error) {
+        console.error("Error initializing stats store:", error);
+        // Continue anyway - we want the app to work even if stats don't
+    }
 
     const serverInfo = JSON.stringify({
         cobalt: {
@@ -269,12 +274,19 @@ export const runAPI = async (express, app, __dirname, isPrimary = true) => {
 
             // Record download if successful
             if (result.status === 200 && (result.body.status === "success" || result.body.status === "redirect" || result.body.status === "tunnel")) {
-                // Get social media service name from the host or pattern match
-                const socialMedia = parsed.host ||
-                    (parsed.patternMatch ? parsed.patternMatch.split('/')[0] : null);
+                try {
+                    // Get social media service name from the host or pattern match
+                    const socialMedia = parsed.host ||
+                        (parsed.patternMatch ? parsed.patternMatch.split('/')[0] : null);
 
-                // Record the download with the social media source
-                await recordDownload(socialMedia);
+                    // Record the download with the social media source - don't await, fire and forget
+                    recordDownload(socialMedia).catch(err => {
+                        console.error("Error recording download stats:", err);
+                    });
+                } catch (error) {
+                    console.error("Error in download stats tracking:", error);
+                    // Continue - we don't want stats errors to break downloads
+                }
             }
 
             res.status(result.status).json(result.body);
@@ -318,7 +330,15 @@ export const runAPI = async (express, app, __dirname, isPrimary = true) => {
 
         // Record tunnel download with service info
         if (streamInfo?.service) {
-            await recordDownload(streamInfo.service);
+            try {
+                // Don't await, fire and forget
+                recordDownload(streamInfo.service).catch(err => {
+                    console.error("Error recording tunnel stats:", err);
+                });
+            } catch (error) {
+                console.error("Error in tunnel stats tracking:", error);
+                // Continue - we don't want stats errors to break downloads
+            }
         }
 
         return stream(res, streamInfo);
