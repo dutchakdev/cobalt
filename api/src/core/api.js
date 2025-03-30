@@ -18,6 +18,7 @@ import { verifyTurnstileToken } from "../security/turnstile.js";
 import { friendlyServiceName } from "../processing/service-alias.js";
 import { verifyStream, getInternalStream } from "../stream/manage.js";
 import { createResponse, normalizeRequest, getIP } from "../processing/request.js";
+import { handleStatsRequest, initStatsStore, recordDownload } from "../core/stats.js";
 
 import * as APIKeys from "../security/api-keys.js";
 import * as Cookies from "../processing/cookie/manager.js";
@@ -46,6 +47,9 @@ const fail = (res, code, context) => {
 export const runAPI = async (express, app, __dirname, isPrimary = true) => {
     const startTime = new Date();
     const startTimestamp = startTime.getTime();
+
+    // Initialize stats tracking
+    await initStatsStore();
 
     const serverInfo = JSON.stringify({
         cobalt: {
@@ -263,11 +267,26 @@ export const runAPI = async (express, app, __dirname, isPrimary = true) => {
                 params: normalizedRequest,
             });
 
+            // Record download if successful
+            if (result.status === 200 && (result.body.status === "success" || result.body.status === "redirect" || result.body.status === "tunnel")) {
+                // Get social media service name from the host or pattern match
+                const socialMedia = parsed.host ||
+                    (parsed.patternMatch ? parsed.patternMatch.split('/')[0] : null);
+
+                // Record the download with the social media source
+                await recordDownload(socialMedia);
+            }
+
             res.status(result.status).json(result.body);
         } catch {
             fail(res, "error.api.generic");
         }
     })
+
+    // Add stats API endpoint
+    app.get('/stats', apiLimiter, async (req, res) => {
+        return handleStatsRequest(req, res);
+    });
 
     app.get('/tunnel', apiTunnelLimiter, async (req, res) => {
         const id = String(req.query.id);
@@ -295,6 +314,11 @@ export const runAPI = async (express, app, __dirname, isPrimary = true) => {
 
         if (streamInfo.type === 'proxy') {
             streamInfo.range = req.headers['range'];
+        }
+
+        // Record tunnel download with service info
+        if (streamInfo?.service) {
+            await recordDownload(streamInfo.service);
         }
 
         return stream(res, streamInfo);
