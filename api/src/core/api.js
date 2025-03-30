@@ -51,6 +51,7 @@ export const runAPI = async (express, app, __dirname, isPrimary = true) => {
     // Initialize stats tracking, but don't block app startup if it fails
     try {
         await initStatsStore();
+        console.log("Stats tracking initialized");
     } catch (error) {
         console.error("Error initializing stats store:", error);
         // Continue anyway - we want the app to work even if stats don't

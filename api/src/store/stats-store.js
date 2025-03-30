@@ -6,14 +6,24 @@ import Store from "./store.js";
  */
 export default class StatsStore {
     #store;
+    #initialized = false;
 
     constructor(name = 'stats') {
-        this.#store = new Store(name);
-        console.log(`Stats store initialized with ${env.redisURL ? 'Redis' : 'memory'} backend`);
-        this.initializeStats();
+        try {
+            this.#store = new Store(name);
+            console.log(`Stats store initialized with ${env.redisURL ? 'Redis' : 'memory'} backend`);
+        } catch (error) {
+            console.error(`Failed to initialize ${env.redisURL ? 'Redis' : 'memory'} stats store:`, error);
+            // We'll continue without a store, and methods will return default values
+        }
     }
 
     async initializeStats() {
+        if (!this.#store) {
+            console.warn("Stats store not available, skipping initialization");
+            return;
+        }
+
         try {
             // Initialize total downloads count if not exists
             if (!(await this.hasKey('totalDownloads'))) {
@@ -29,6 +39,8 @@ export default class StatsStore {
             if (!(await this.hasKey('socialMediaStats'))) {
                 await this.#store.set('socialMediaStats', {});
             }
+
+            this.#initialized = true;
         } catch (error) {
             console.error("Error initializing stats store:", error);
             // Continue anyway to allow the app to start even if Redis has issues
@@ -36,9 +48,18 @@ export default class StatsStore {
     }
 
     /**
+     * Check if the store is initialized and available
+     */
+    isAvailable() {
+        return !!this.#store && this.#initialized;
+    }
+
+    /**
      * Safely check if a key exists
      */
     async hasKey(key) {
+        if (!this.#store) return false;
+
         try {
             return await this.#store.has(key);
         } catch (error) {
@@ -52,6 +73,8 @@ export default class StatsStore {
      * @param {string} socialMedia - Social media source (optional)
      */
     async recordDownload(socialMedia = null) {
+        if (!this.#store) return false;
+
         try {
             // Increment total downloads
             const totalDownloads = await this.getTotalDownloads();
